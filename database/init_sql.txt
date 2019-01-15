@@ -1,0 +1,169 @@
+CREATE TABLE channel_types (
+    type   VARCHAR2(128) NOT NULL
+);
+
+ALTER TABLE channel_types ADD CONSTRAINT channel_types_pk PRIMARY KEY ( type );
+
+CREATE TABLE channels (
+    id                   INTEGER AUTOINCREMENT NOT NULL,
+    name                 VARCHAR2(512) NOT NULL,
+    channel_types_type   VARCHAR2(128) NOT NULL
+);
+
+ALTER TABLE channels ADD CONSTRAINT channels_pk PRIMARY KEY ( id );
+
+CREATE TABLE chat_history (
+    message          VARCHAR2(4000) NOT NULL,
+    "date"           DATE NOT NULL,
+    clients_userid   VARCHAR2(128) NOT NULL,
+    channels_id      INTEGER NOT NULL
+);
+
+ALTER TABLE chat_history
+    ADD CONSTRAINT chat_history_pk PRIMARY KEY ( message,
+                                                 "date",
+                                                 clients_userid,
+                                                 channels_id );
+
+CREATE TABLE clients (
+    userid      VARCHAR2(128) NOT NULL,
+    username    VARCHAR2(128) NOT NULL,
+    join_date   DATE DEFAULT NULL
+);
+
+ALTER TABLE clients ADD CONSTRAINT clients_pk PRIMARY KEY ( userid );
+
+CREATE TABLE game_history (
+    "date"                  DATE NOT NULL,
+    clients_userid          VARCHAR2(128) NOT NULL,
+    result     VARCHAR2(64) NOT NULL,
+    game_id   INTEGER NOT NULL
+);
+
+ALTER TABLE game_history
+    ADD CONSTRAINT game_history_pk PRIMARY KEY ( game_id,
+                                                 clients_userid,
+                                                 "date",
+                                                 result );
+
+CREATE TABLE game_results (
+    result     VARCHAR2(64) NOT NULL,
+    points     INTEGER NOT NULL,
+    games_id   INTEGER NOT NULL
+);
+
+ALTER TABLE game_results ADD CONSTRAINT game_results_pk PRIMARY KEY ( result,
+                                                                      games_id );
+
+CREATE TABLE games (
+    id     INTEGER AUTOINCREMENT NOT NULL,
+    name   VARCHAR2(128) NOT NULL
+);
+
+ALTER TABLE games ADD CONSTRAINT games_pk PRIMARY KEY ( id );
+
+CREATE TABLE roles (
+    name             VARCHAR2(128) NOT NULL,
+    clients_userid   VARCHAR2(128) NOT NULL
+);
+
+ALTER TABLE roles ADD CONSTRAINT roles_pk PRIMARY KEY ( name,
+                                                        clients_userid );
+
+CREATE TABLE voice_chat_time (
+    connection_time   DATE NOT NULL,
+    clients_userid    VARCHAR2(128) NOT NULL,
+    channels_id       INTEGER NOT NULL
+);
+
+ALTER TABLE voice_chat_time ADD CONSTRAINT voice_chat_time_pk PRIMARY KEY ( clients_userid,
+                                                                            channels_id );
+
+CREATE TABLE youtube_history (
+    url              VARCHAR2(4000) NOT NULL,
+    "date"           DATE NOT NULL,
+    clients_userid   VARCHAR2(128) NOT NULL
+);
+
+ALTER TABLE youtube_history
+    ADD CONSTRAINT youtube_history_pk PRIMARY KEY ( url,
+                                                    clients_userid,
+                                                    "date" );
+
+ALTER TABLE channels
+    ADD CONSTRAINT channels_channel_types_fk FOREIGN KEY ( channel_types_type )
+        REFERENCES channel_types ( type );
+
+ALTER TABLE chat_history
+    ADD CONSTRAINT chat_history_channels_fk FOREIGN KEY ( channels_id )
+        REFERENCES channels ( id );
+
+ALTER TABLE chat_history
+    ADD CONSTRAINT chat_history_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE game_history
+    ADD CONSTRAINT game_history_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE game_results
+    ADD CONSTRAINT game_results_games_fk FOREIGN KEY ( games_id )
+        REFERENCES games ( id );
+
+ALTER TABLE roles
+    ADD CONSTRAINT roles_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE voice_chat_time
+    ADD CONSTRAINT voice_chat_time_channels_fk FOREIGN KEY ( channels_id )
+        REFERENCES channels ( id );
+
+ALTER TABLE voice_chat_time
+    ADD CONSTRAINT voice_chat_time_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE youtube_history
+    ADD CONSTRAINT youtube_history_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE channels
+    ADD CONSTRAINT channels_channel_types_fk FOREIGN KEY ( channel_types_type )
+        REFERENCES channel_types ( type );
+
+ALTER TABLE chat_history
+    ADD CONSTRAINT chat_history_channels_fk FOREIGN KEY ( channels_id )
+        REFERENCES channels ( id );
+
+ALTER TABLE chat_history
+    ADD CONSTRAINT chat_history_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE game_history
+    ADD CONSTRAINT game_history_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE game_history
+    ADD CONSTRAINT game_history_game_results_fk FOREIGN KEY ( result,
+                                                              game_id )
+        REFERENCES game_results ( result,
+                                  games_id );
+
+ALTER TABLE game_results
+    ADD CONSTRAINT game_results_games_fk FOREIGN KEY ( games_id )
+        REFERENCES games ( id );
+
+ALTER TABLE roles
+    ADD CONSTRAINT roles_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE voice_chat_time
+    ADD CONSTRAINT voice_chat_time_channels_fk FOREIGN KEY ( channels_id )
+        REFERENCES channels ( id );
+
+ALTER TABLE voice_chat_time
+    ADD CONSTRAINT voice_chat_time_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
+
+ALTER TABLE youtube_history
+    ADD CONSTRAINT youtube_history_clients_fk FOREIGN KEY ( clients_userid )
+        REFERENCES clients ( userid );
