@@ -11,7 +11,7 @@ import random
 
 import games.games as db_games
 import channels.channels as db_channels
-from datetime import datetime
+from datetime import datetime, timedelta
 #import commands.music.music
 
 description = 'A work in progress Bot written in Python by Krystal'
@@ -158,19 +158,28 @@ async def query(ctx, qr:str):
 
 @bot.command(pass_context = True)
 async def toss(ctx, guess:str = ''):
+    global cursor
     if guess is '':
-        await bot.send_message(ctx.message.channel, "Usage: tails / t or heads / h")
+        await bot.send_message(ctx.message.channel, "```Usage: tails / t or heads / h```")
         return
     cursor.execute("SELECT id FROM games WHERE name LIKE ('coin toss')")
     game_id = cursor.fetchone()
+    '''
     cursor.execute("SELECT * FROM game_results WHERE games_id = ?", game_id)
     results = cursor.fetchall()
     roll = random.choice(results)
     if guess.lower() in roll[0].lower():
         points = roll[1]
+    '''
+    cursor.execute("SELECT points FROM game_results WHERE games_id = ?", game_id)
+    result_points = cursor.fetchone()
+    results = ['Tails', 'Heads']
+    roll = random.choice(results)
+    if guess.lower() in roll.lower():
+        points = "{}".format(*result_points)
     else: points = 0
-    await bot.send_message(ctx.message.channel, str(roll[0]) + "\n" + str(points) + " points given!")
-    cursor.execute("""INSERT INTO game_history ('clients_userid', 'result', 'game_id', 'points', 'game_date') VALUES (?,?,?,?, (strftime('%Y-%m-%d %H:%M:%f', 'now')))""", (ctx.message.author.id, roll[0], *game_id, points))
+    await bot.send_message(ctx.message.channel, roll + "\n" + str(points) + " points given!")
+    cursor.execute("""INSERT INTO game_history ('clients_userid', 'result', 'game_id', 'points', 'game_date') VALUES (?,?,?,?, (strftime('%Y-%m-%d %H:%M:%f', 'now')))""", (ctx.message.author.id, roll, *game_id, points))
     conn.commit()
     return
     
@@ -206,18 +215,255 @@ async def db_dump(ctx, name:str = ''):
         await bot.send_file(ctx.message.author, f)
         f.close
 
+@bot.command(pass_context = True)
+async def mute(ctx):
+    global cursor
+    cursor.execute("""SELECT name FROM roles WHERE name = 'Admun' AND clients_userid = ?""", (ctx.message.author.id,))
+    isAdmin = cursor.fetchone()
+    if isAdmin is None:
+        await bot.send_message(ctx.message.channel,":x: You don't have the required role.")
+        return
+    for mentions in ctx.message.mentions:
+        if mentions.id is not bot.user.id:
+            await mute_user(mentions.id)
+            await bot.send_message(ctx.message.channel,":x: User " + mentions.mention + " has been muted :x:")
 
+async def mute_user(id):
+    global cursor
+    cursor.execute("""INSERT INTO roles ('name', 'clients_userid') VALUES ('Muted', ?)""", (id,))
+    conn.commit()
+
+
+@bot.command(pass_context = True)
+async def unmute(ctx):
+    global cursor
+    cursor.execute("""SELECT name FROM roles WHERE name = 'Admun'AND clients_userid = ?""", (ctx.message.author.id,))
+    isAdmin = cursor.fetchone()
+    if isAdmin is None:
+        await bot.send_message(":x: You don't have the required role.")
+        return
+    for mentions in ctx.message.mentions:
+        cursor.execute("""DELETE FROM roles WHERE name = 'Muted' AND clients_userid = ?""", (mentions.id,))
+        await bot.send_message(ctx.message.channel,":white_check_mark: User " + mentions.mention + " has been unmuted :white_check_mark:")
+    conn.commit()
+
+@bot.command(pass_context = True)
+async def points(ctx):
+    global cursor
+    for mention in ctx.message.mentions:
+        cursor.execute("""SELECT SUM(points) FROM game_history WHERE clients_userid = ?""", (mention.id,))
+        points = cursor.fetchone()
+        if points[0] is None:
+            points = 0
+        else:
+            points = "{}".format(*points)
+        await bot.send_message(ctx.message.channel, mention.mention + " currently has: " + str(points) + " points :ok_hand:")
+
+@bot.command(pass_context = True)
+async def banword(ctx, word):
+    global cursor
+    await bot.send_message(ctx.message.channel,":white_check_mark: Word " + word + " has been banned")
+    cursor.execute("""INSERT INTO banned_words ('message') VALUES(?)""", (word,))
+    conn.commit()
+
+@bot.command(pass_context = True)
+async def mutedusers(ctx):
+    global cursor
+    cursor.execute("""SELECT user.username, role.clients_userid FROM clients user INNER JOIN roles role ON user.userid = role.clients_userid WHERE role.name = 'Muted'""")
+    results = cursor.fetchall()
+    print(results)
+    if not results:
+        await bot.send_message(ctx.message.channel, "No muted users.")
+        return
+    msg = await bot.send_message(ctx.message.channel,"Loading...")
+    emoji = discord.utils.get(bot.get_all_emojis(), name='monkaW')
+
+    for result in results:
+        embed = discord.Embed(title="Muted Users", description="", color=0x00ff00)
+        embed.add_field(name = "Name:", value = "{}".format(result[0]), inline = True)
+        embed.add_field(name = "ID:", value = "{}".format(result[1]), inline = True)
+        await bot.edit_message(msg, embed=embed)
+        await bot.add_reaction(msg, emoji)
+        reacted = await bot.wait_for_reaction(emoji = emoji, timeout = 30, message = msg, check=lambda reaction, user: user != bot.user)
+        if reacted is None:
+            await bot.send_message(ctx.message.channel, "Request Timeout.")
+            return
+        await bot.remove_reaction(msg, emoji, reacted.user)
+
+@bot.command(pass_context = True)
+async def logs(ctx):
+    mention = None
+    ban_flag = None
+    global cursor
+    while mention is None:
+        await bot.send_message(ctx.message.channel, "Mention a user you want logs of (10s timeout).")
+        res = await bot.wait_for_message(timeout = 10, author = ctx.message.author, channel = ctx.message.channel)
+        if res:
+            mention = res.mentions[0]
+    if ban_flag is None:
+        await bot.send_message(ctx.message.channel, "Ban flag? (say anything or wait 5s).")
+        res = await bot.wait_for_message(timeout = 5, author = ctx.message.author, channel = ctx.message.channel)
+        if res:
+            ban_flag = 1
+    if ban_flag:
+        cursor.execute("""SELECT user.username, msg.clients_userid, msg.message, (datetime(msg.msg_date)) FROM clients user INNER JOIN chat_history msg ON user.userid = msg.clients_userid WHERE msg.clients_userid = ? AND ban_flag = 1 LIMIT 100""", (mention.id,))
+    else:
+        cursor.execute("""SELECT user.username, msg.clients_userid, msg.message, (datetime(msg.msg_date)) FROM clients user INNER JOIN chat_history msg ON user.userid = msg.clients_userid WHERE msg.clients_userid = ? LIMIT 100""", (mention.id,))
+    results = reversed(cursor.fetchall())
+    if not results:
+        await bot.send_message(ctx.message.channel, "No chat history for that user.")
+        return
+    msg = await bot.send_message(ctx.message.channel,"Loading...")
+    emoji = discord.utils.get(bot.get_all_emojis(), name='monkaW')
+
+    for result in results:
+        embed = discord.Embed(title="Chat History", description="", color=0x00ff00)
+        embed.add_field(name = "Name:", value = "{}".format(result[0]), inline = True)
+        embed.add_field(name = "ID:", value = "{}".format(result[1]), inline = True)
+        embed.add_field(name = "Date:", value = "{}".format(result[3]), inline = True)
+        embed.add_field(name = "Message:", value = "{}".format(result[2]), inline = False)
+        await bot.edit_message(msg, embed=embed)
+        await bot.add_reaction(msg, emoji)
+        reacted = await bot.wait_for_reaction(emoji = emoji, timeout = 30, message = msg, check=lambda reaction, user: user != bot.user)
+        if reacted is None:
+            await bot.send_message(ctx.message.channel, "Request Timeout.")
+            return
+        await bot.remove_reaction(msg, emoji, reacted.user)
+
+
+@bot.command(pass_context = True)
+async def ythistory(ctx):
+    mention = None
+    global cursor
+    while mention is None:
+        await bot.send_message(ctx.message.channel, "Mention a user you want logs of (10s timeout).")
+        res = await bot.wait_for_message(timeout = 10, author = ctx.message.author, channel = ctx.message.channel)
+        if res:
+            mention = res.mentions[0]
+    cursor.execute("""SELECT user.username, yt.clients_userid, yt.url, (datetime(yt.yt_date)) FROM clients user INNER JOIN youtube_history yt ON user.userid = yt.clients_userid WHERE yt.clients_userid = ? LIMIT 100""", (mention.id,))
+    results = reversed(cursor.fetchall())
+    if not results:
+        await bot.send_message(ctx.message.channel, "No you tube history for that user.")
+        return
+    msg = await bot.send_message(ctx.message.channel,"Loading...")
+    emoji = discord.utils.get(bot.get_all_emojis(), name='monkaW')
+
+    for result in results:
+        embed = discord.Embed(title="Youtube History", description="", color=0x00ff00)
+        embed.add_field(name = "Name:", value = "{}".format(result[0]), inline = True)
+        embed.add_field(name = "ID:", value = "{}".format(result[1]), inline = True)
+        embed.add_field(name = "Date:", value = "{}".format(result[3]), inline = True)
+        embed.add_field(name = "Url:", value = "{}".format(result[2]), inline = False)
+        await bot.edit_message(msg, embed=embed)
+        await bot.add_reaction(msg, emoji)
+        reacted = await bot.wait_for_reaction(emoji = emoji, timeout = 30, message = msg, check=lambda reaction, user: user != bot.user)
+        if reacted is None:
+            await bot.send_message(ctx.message.channel, "Request Timeout.")
+            return
+        await bot.remove_reaction(msg, emoji, reacted.user)
+
+@bot.command(pass_context = True)
+async def vctime(ctx):
+    mention = None
+    global cursor
+    while mention is None:
+        await bot.send_message(ctx.message.channel, "Mention a user you want voice chat time of (10s timeout).")
+        res = await bot.wait_for_message(timeout = 10, author = ctx.message.author, channel = ctx.message.channel)
+        if res:
+            mention = res.mentions[0]
+    cursor.execute("""SELECT user.username, vc.clients_userid, vc.channels_id, vc.connection_time, vc.last_left FROM clients user INNER JOIN voice_chat_time vc ON user.userid = vc.clients_userid WHERE vc.clients_userid = ? LIMIT 10""", (mention.id,))
+    results = reversed(cursor.fetchall())
+    if not results:
+        await bot.send_message(ctx.message.channel, "User has not been in a voice channel.")
+        return
+    msg = await bot.send_message(ctx.message.channel,"Loading...")
+    emoji = discord.utils.get(bot.get_all_emojis(), name='monkaW')
+
+    for result in results:
+        cursor.execute("""SELECT name FROM channels WHERE id = ?""",(result[2],))
+        channel_name = cursor.fetchone()
+        embed = discord.Embed(title="Youtube History", description="", color=0x00ff00)
+        embed.add_field(name = "Name:", value = "{}".format(result[0]), inline = True)
+        embed.add_field(name = "ID:", value = "{}".format(result[1]), inline = True)
+        embed.add_field(name = "Channel:", value = "{}".format(*channel_name), inline = True)
+        embed.add_field(name = "Last Seen:", value = "{}".format(result[4]), inline = False)
+        
+        minutes, seconds = divmod(result[3], 60)
+        hours , minutes = divmod(minutes, 60)
+        embed.add_field(name = "Time:", value = "{} hours {} minutes {} seconds".format(hours, minutes, seconds), inline = True)
+        await bot.edit_message(msg, embed=embed)
+        await bot.add_reaction(msg, emoji)
+        reacted = await bot.wait_for_reaction(emoji = emoji, timeout = 30, message = msg, check=lambda reaction, user: user != bot.user)
+        if reacted is None:
+            await bot.send_message(ctx.message.channel, "Request Timeout.")
+            return
+        await bot.remove_reaction(msg, emoji, reacted.user)
+
+@bot.command(pass_context = True)
+async def pointhistory(ctx):
+    mention = None
+    global cursor
+    while mention is None:
+        await bot.send_message(ctx.message.channel, "Mention a user you want logs of (10s timeout).")
+        res = await bot.wait_for_message(timeout = 10, author = ctx.message.author, channel = ctx.message.channel)
+        if res:
+            mention = res.mentions[0]
+    cursor.execute("""SELECT user.username, pts.clients_userid, pts.points, (datetime(pts.game_date)), pts.game_id FROM clients user INNER JOIN game_history pts ON user.userid = pts.clients_userid WHERE pts.clients_userid = ? LIMIT 100""", (mention.id,))
+    results = reversed(cursor.fetchall())
+    if not results:
+        await bot.send_message(ctx.message.channel, "No you tube history for that user.")
+        return
+    msg = await bot.send_message(ctx.message.channel,"Loading...")
+    emoji = discord.utils.get(bot.get_all_emojis(), name='monkaW')
+
+    for result in results:
+        cursor.execute("""SELECT name FROM games WHERE id = ?""",(result[4],))
+        game_name = cursor.fetchone()
+        print(game_name)
+        embed = discord.Embed(title="Point History", description="", color=0x00ff00)
+        embed.add_field(name = "Name:", value = "{}".format(result[0]), inline = True)
+        embed.add_field(name = "ID:", value = "{}".format(result[1]), inline = True)
+        embed.add_field(name = "Date:", value = "{}".format(result[3]), inline = True)
+        embed.add_field(name = "Service:", value = "{}".format(*game_name), inline = False)
+        embed.add_field(name = "Points:", value = "{}".format(result[2]), inline = True)
+        await bot.edit_message(msg, embed=embed)
+        await bot.add_reaction(msg, emoji)
+        reacted = await bot.wait_for_reaction(emoji = emoji, timeout = 30, message = msg, check=lambda reaction, user: user != bot.user)
+        if reacted is None:
+            await bot.send_message(ctx.message.channel, "Request Timeout.")
+            return
+        await bot.remove_reaction(msg, emoji, reacted.user)
 ###################################################################
 #               DATABASE EVENTS
 ###################################################################
 
 @bot.event
 async def on_message(message):
-    await bot.process_commands(message)
     global cursor
     global conn
+    flagged = None
+    cursor.execute("""SELECT name FROM roles WHERE clients_userid = ? AND name = 'Muted'""", (message.author.id,))
+    isMuted = cursor.fetchone()
+    if isMuted is not None:
+        print("Delete Muted Message")
+        await bot.delete_message(message)
+    cursor.execute("""SELECT message FROM banned_words""")
+    words = cursor.fetchall()
+    for word in words:
+        word = "{}".format(*word)
+        print(word)
+        if word.lower() in message.content.lower():
+            print("Banned word found")
+            flagged = True
+            print("gonna mute")
+            await mute_user(message.author.id)
+            await bot.send_message(message.channel,":x: User " + message.author.mention + " has been muted :x:")
 
-    cursor.execute("""INSERT INTO chat_history ('message', 'clients_userid', 'channels_id', 'msg_date') VALUES(?,?,?,?)""", (message.content, message.author.id, message.channel.id, message.timestamp))
+    await bot.process_commands(message)
+    if flagged is None:
+        cursor.execute("""INSERT INTO chat_history ('message', 'clients_userid', 'channels_id', 'msg_date') VALUES(?,?,?,?)""", (message.content, message.author.id, message.channel.id, message.timestamp))
+    else:
+        cursor.execute("""INSERT INTO chat_history ('message', 'clients_userid', 'channels_id', 'msg_date', ban_flag) VALUES(?,?,?,?,1)""", (message.content, message.author.id, message.channel.id, message.timestamp))
     conn.commit()
 
 @bot.event
@@ -240,8 +486,8 @@ async def on_message_delete(message):
 async def on_member_join(member):
     global cursor
     global conn
-
-    cursor.execute("""INSERT OR IGNORE INTO clients ('userid', 'name') VALUES(?,?)""", ((member.id,), member.name))
+    print('New member ' + member.id)
+    cursor.execute("""INSERT INTO clients ('userid', 'username') VALUES(?,?)""", (member.id, member.name))
     conn.commit()
 
 @bot.event
@@ -375,6 +621,17 @@ async def volume(ctx, value:float):
         return await bot.send_message(ctx.message.channel, 'Currently not playing.')
 
 async def play(ctx, url:str):
+    global cursor
+    global conn
+    cursor.execute("""SELECT SUM(points) FROM game_history WHERE clients_userid = ?""", (ctx.message.author.id,))
+    total_points = cursor.fetchone()
+    if total_points[0] is None:
+        total_points = 0
+    else:
+        total_points = "{}".format(*total_points)
+    if int(total_points) < 10:
+        await bot.send_message(ctx.message.channel, ":slight_frown: You don't have the required amount of points. Current points: "+str(total_points))
+        return
     if 'index=' in url:
         url = url.split('index=')[0]
 
@@ -392,9 +649,14 @@ async def play(ctx, url:str):
     player = await voice.create_ytdl_player(url)
     player.start()
     await bot.send_message(ctx.message.channel, '**Playing:** ' + player.title + '  || {}'.format(author.mention))
-    global cursor
-    global conn
     cursor.execute("""INSERT INTO youtube_history ('url', 'clients_userid', 'yt_date') VALUES (?,?,?)""", (url, author.id, ctx.message.timestamp))
+    cursor.execute("SELECT id FROM games WHERE name LIKE ('you tube')")
+    game_id = cursor.fetchone()
+    cursor.execute("SELECT points FROM game_results WHERE games_id = ?", game_id)
+    result_points = cursor.fetchone()
+    result_points = "{}".format(*result_points)
+    await bot.send_message(ctx.message.channel, result_points + " deducted from " + author.mention)
+    cursor.execute("""INSERT INTO game_history ('clients_userid', 'result', 'game_id', 'points', 'game_date') VALUES (?,?,?,?, (strftime('%Y-%m-%d %H:%M:%f', 'now')))""", (ctx.message.author.id, url, *game_id, result_points))
     conn.commit()
 
 
