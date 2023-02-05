@@ -676,4 +676,4 @@ async def shutdown():
     await bot.say(shutdown_emoji + ' Shutting down... ' + shutdown_emoji)
     await bot.logout()
 
-bot.run('Mzg4NDY0NjQyMjI3NDM3NTc4.DQxx4Q.DobZG461V9L-7Q91O4KnqDo9erQ')
+bot.run('put your bot token here')
